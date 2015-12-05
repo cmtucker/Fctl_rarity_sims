@@ -10,19 +10,23 @@
 
 regional_measures <- function(scapeout){#I've set it up as a single function for all regional measures.
 	
-regionalDa <- as.matrix(dist(scapeout$bsp1, upper=TRUE, diag=NULL))
-regionalDb <- as.matrix(dist(scapeout$bspp2, upper=TRUE, diag=NULL))
-regionalD <- (regionalDa + regionalDb)/2
+#regionalDa <- as.matrix(dist(scapeout$bsp1, upper=TRUE, diag=NULL))
+#regionalDb <- as.matrix(dist(scapeout$bspp2, upper=TRUE, diag=NULL))
+#regionalD <- (regionalDa + regionalDb)/2
+
+regionalD <- as.matrix(dist(scapeout$bsp1))
 diag(regionalD) <- NA
 
 #rescale trait-distance matrix between 0-1
 regionalD <- (regionalD)/max(regionalD, na.rm=TRUE)
 
 #Calculate Regional Uniqueness (U)
-U <- apply(regionalD, 1, function(x){min(x, na.rm=TRUE)})
+U <- suppressMessages(apply(regionalD, 1, function(x){min(x, na.rm=TRUE)}))
+
+U[is.infinite(U)] <-0
 #uniqueness is the closest distance in trait space between species i and all other species in the species pool
 
-#Regional Sparseness SregionalS)
+#Regional Sparseness (regionalS)
 	#species occupancy
 	occupancy <- colSums(scapeout$Y)
 	max_occ <- max(occupancy)
@@ -40,9 +44,16 @@ out <- cbind(regionalR, regionalS, U)
 qS <- quantile(regionalS, probs=c(0.05, 0.95))
 qU <- quantile(U, probs=c(0.05, 0.95)) 
 
-class <- matrix(NA, nrow=nrow(out), ncol=1)
 
 ##Classify each species into the 9 possible categories of rarity. I'm just using if and else statements, probably there is a nicer method!
+
+if(qS==0 & qU==0){
+	
+	class <- matrix(7, nrow=nrow(out), ncol=1)
+
+	}else{
+
+class <- matrix(NA, nrow=nrow(out), ncol=1)
 
 for(i in 1:nrow(class)){
 	
@@ -56,6 +67,8 @@ if(out[i,"U"]>=qU[2]){ #very distinct
 			class[i] <-ifelse(out[i,"regionalS"]<=qS[1], 4, ifelse(out[i,"regionalS"]>=qS[2], 6, 5))
 		}
 	}}
+}
+
 }
 out <- cbind(out, as.vector(class))				
 return(out)
@@ -82,7 +95,6 @@ local_distinct <- matrix(NA, nrow=nrow(scapeout$Yab), ncol=ncol(scapeout$Yab))
 #make sure the naming is consistent
 colnames(local_distinct) <- colnames(scapeout$Yab)
 rownames(scapeout$bsp1) <- colnames(scapeout$Yab)
-rownames(scapeout$bspp2) <- colnames(scapeout$Yab)
 
 #For each community in the landscape:
 for(i in 1:nrow(scapeout$Yab)){
@@ -93,26 +105,24 @@ for(i in 1:nrow(scapeout$Yab)){
 		if(length(a)>0){
 		#subset trait data to match community data
 		b <- scapeout$bsp1[match(names(a), rownames(scapeout$bsp1))]
-		b2 <- scapeout$bspp2[match(names(a), rownames(scapeout$bspp2))]
 		names(b) <- names(a)
-		names(b2) <- names(a)
 
 		#calculate community trait distances
-		c1 <- as.matrix(dist(b, upper=TRUE, diag=NULL))
-		c2 <- as.matrix(dist(b2, upper=TRUE, diag=NULL))
-		c <- as.matrix(dist(b, upper=TRUE, diag=NULL))
-		c <- (c1 + c2) / 2
-		
+		cc <- as.matrix(dist(b))
+		diag(cc) <- NA
+			
 		#scale by max to be between 0-1
-		c <- c/max(c, na.rm=TRUE)
+		maxc <- max(cc, na.rm=TRUE)
+		cc2 <- cc/maxc
+		cc2[is.nan(cc2)] <-0
 		
 		#calculate distinctivness in reference to the abundances of the other species in the community in d
 		#this is the abundance weighted version
 		d <- matrix(NA, ncol=length(a), nrow=1)
 		for (g in 1:length(d)){
-			d[g] <- sum(a[-g]*c[-g, g])/sum(a[-g])
+			d[g] <- sum(a[-g] * cc[-g, g]) / sum(a[-g])
 		}
-		colnames(d) <- colnames(c)#names matching again
+		colnames(d) <- colnames(cc)#names matching again
 		
 		#record in the local_distinct matrix, associate distinctiveness values with the correct species
 		local_distinct[i, c(which(match(colnames(local_distinct), colnames(d))!="NA"))] <- d		
@@ -136,10 +146,10 @@ for(j in 1:nrow(scapeout$Yab)){
 			
 		b <- a/sum(a) #relative abundance
 		#sparseness calculation
-		c <- sapply(b, function(x){exp(-length(a)*log(2)*x)})
+		cc <- sapply(b, function(x){exp(-length(a)*log(2)*x)})
 		
 		#input into the local_sparse matrix
-		local_sparse[j, c(which(match(colnames(local_sparse), names(c))!="NA"))] <- t(c)		
+		local_sparse[j, c(which(match(colnames(local_sparse), names(cc))!="NA"))] <- t(cc)		
 		}}
 
 #Calculate comprehensive rarity measurement
@@ -156,12 +166,22 @@ for(i in 1:nrow(local_distinct)){#for each community
 	#calculate quantiles (using 95% and 5%)
 qlS <- quantile(local_sparse[i,], probs=c(0.05, 0.95), na.rm=TRUE)
 qlD <- quantile(local_distinct[i,], probs=c(0.05, 0.95), na.rm=TRUE) 
+
+if(any(is.na(qlS)|is.na(qlD))!=TRUE){
+
+if(var(qlS)==0){
+qlS <- c(0, 1)
+}
+
+if(var(qlD)==0){
+qlD <- c(0, 1)
+}
 	
 for(j in 1:ncol(local_distinct)){
 		
 #If/Else statements to classify based on comparison to the distinctness and sparseness quantile values in that community
-if(is.na(local_distinct[i,j])){
-	class[i,j] <- NA
+if(is.na(local_distinct[i, j])){
+	class[i, j] <- NA
 	
 	}else{
 		
@@ -180,6 +200,7 @@ if(is.na(local_distinct[i,j])){
 	}}}
 }}
 
+}
 return(list(localR, local_distinct, local_sparse, class))
 }
 

@@ -28,24 +28,20 @@ library(plotrix)
 scape <- function(tree, 
 				scape.size=10, 
 				g.center=1, 
-				g.range=1, 
 				g.repulse=1, 
 				wd.all=0.2*(scape.size+1)^2, 
 				signal.center=TRUE, 
-				signal.range=FALSE, 
-				same.range=TRUE, 
 				repulse=FALSE, 
 				center.scale = 1, 
-				range.scale = 1, 
 				repulse.scale = 1, 
-				site.stoch.scale = 0.5, 
+				site.stoch.scale = 0, 
 				sd.center=1, 
-				sd.range=1, 
+				sd.range = 1,
 				rho=NULL, 
 				K=100,
-				th=8,
-				extinction = FALSE,
-				comp.only=FALSE)
+				th=0.2,
+				neutral = FALSE,
+				extinction = FALSE)
 {
 	
   #deal with the tree
@@ -69,7 +65,6 @@ scape <- function(tree,
 Xscale <- 2  #scale the strength of the probability matrix X
 Mscale <- site.stoch.scale  #scale stochasticity in niche distributions 
 Vscale1 <- center.scale  #scale the strength of the optimal values on axis one
-Vscale2 <- center.scale #scale the strength of the optimal values on axis two
     
     
  # Grafen's rho adjust strength of phylogenetic signal overall.
@@ -81,6 +76,7 @@ Vscale2 <- center.scale #scale the strength of the optimal values on axis two
     #########################################################################################################################
 #SIMULATION
 
+#gradient is along 1 axis only
 nsites <- scape.size #number sites for the square landscape
 mx <- t(as.matrix((-(nsites) / 2):(nsites/2)))  #env gradient
 m <- length(mx) #new number of sites (equal to nsites + 1)
@@ -88,34 +84,30 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
 ############
 #Establish range centers/niche optima 
 
+#do traits cause environmental filtering?
     if(signal.center){
       g <- abs(g.center)
       V.a <- vcv(corBlomberg(g, tree), corr=T) #adjust phylogenetic signal for range centre
       iD <- t(chol(V.a))
+      #what is the correlation in env similarity between species?
     } else {
       V.a <- V
       iD <- diag(nspp) #diag = 1
+      #each species is maximally distinct, no correlation 
     }
-    if(signal.range){
-      g <- abs(g.range)
-      V.w <- vcv(corBlomberg(g, tree), corr=T) #adjust phylogenetic signal
-      iD.w <- t(chol(V.w))
-    } else {
-      V.w <- V
-      iD.w <- diag(nspp)
-    }
+
     
   ##environmental/geographical gradient 1   
 
-    e <- iD %*% rnorm(nspp, sd=sd.center)                                                               #assign optimal values as related to branch lengths, includes variation about mean value. Absolute values meaningless
+    e <- iD %*% rnorm(nspp, sd=sd.center)#trait values for each species                                                               #for env filtering, assign env optimal values as related to branch lengths, includes variation about mean value. Absolute values meaningless
     e <- Vscale1 * (e - mean(e)) / apply(e, 2, sd)                                           #z-scores and scaling of the optimal values based on environmental signal in phylogeny
     bspp1 <- e
     
-#range size autocorrelation    
-    if(!same.range&comp.only==FALSE){
+#environmental filtering landscape 
+    if(signal.center==TRUE){
    		  spmx <- t((array(1, c(nspp, 1))) %*% mx)
           mxsp <- max(mx) * ((array(1, c(length(mx), 1))) %*% t(e))
-          wd <- range.scale*iD.w %*% rnorm(nspp, sd=sd.range)
+          wd <- rnorm(nspp, sd=sd.range)
           wd <- wd + (abs(min(wd)))
           wd <- wd / max(wd)
 
@@ -125,62 +117,33 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
           wd <- wd.all * wd
           
           X <- exp(-((spmx - mxsp)^2) / t(matrix(wd, nspp, m))) #Niche distributions
-          }else{
-          if(comp.only==TRUE) {
+
+	#Competition: set up initial landscape, with all species in equal abundances in every site
+		}else{
           	
           spmx <- t((array(1, c(nspp, 1))) %*% mx)
-          mxsp <- max(mx) * ((array(1, c(length(mx), 1))) %*% t(e))		mxsp <- mxsp[, sample(1:ncol(mxsp), size=ncol(mxsp), replace=FALSE)]#randomize species initial location
-          wd <- range.scale*iD.w %*% rnorm(nspp, sd=sd.range)
-          wd <- wd + (abs(min(wd)))
-          wd <- wd / max(wd)
-
-          dif <- sort(wd)[-1] - sort(wd)[-length(wd)]
-          rat <- mean(dif / sort(wd)[-1])
-          wd[wd==0] <- sort(wd)[2] - sort(wd)[2] * rat                                #Assign the zero with the mean ratio of nearest neighbor distances over the larger item
-          wd <- wd.all * wd
-
-      	 X <- exp(-((spmx - mxsp)^2) / t(matrix(wd, nspp, m))) #Niche distributions
-      }
-        } else {
-          spmx <- t((array(1, c(nspp, 1))) %*% mx)
-          mxsp <- max(mx)*((array(1, c(length(mx), 1))) %*% t(e))
-          X <- exp(-((spmx - mxsp)^2) / wd.all) #Niche distributions
-    }       
-    }
-    X <- Xscale * X                                                                       #Scales this initial species x site probability matrix 
-    #Xsmooth <- X                                                                         #Distributions without random variation
-    X1 <- diag(1 - Mscale * runif(m)) %*% X                                               #Scale and include random variation into the niche distributions
-
-    ##environmental/geographical gradient 2
-       #e <- iD %*% rnorm(nspp,sd=sd.center)
-       #e <- Vscale2 * (e - mean(e))/apply(e, 2, sd)
-       # bspp2 <- e
-
-
-  if(!same.range){
-          spmx <- t((array(1, c(nspp, 1))) %*% mx)
-          mxsp <- max(mx)*((array(1, c(length(mx), 1))) %*% t(e))
-          wd <- range.scale * iD.w %*% rnorm(nspp, sd=sd.range)
-          wd <- wd + (abs(min(wd)))
-          wd <- wd / max(wd)
-              #Assign the zero to the nonzero minimum
-          dif <- sort(wd)[-1] - sort(wd)[-length(wd)]
-          rat <- mean(dif / sort(wd)[-1])
-          wd[wd==0] <- sort(wd)[2] - sort(wd)[2]*rat                              #Assign the zero with the mean rato of nearist neighbor distances over the larger item
-          wd <- wd.all * wd
-          X <- exp(-((spmx - mxsp)^2) / t(matrix(wd, nspp, m))) #Niche distributions     
-     } else {
-          spmx <- t((array(1, c(nspp, 1))) %*% mx)
           mxsp <- max(mx) * ((array(1, c(length(mx), 1))) %*% t(e))
-          X <- exp(-((spmx - mxsp)^2) / wd.all) #Niche distributions
-     }
-     X <- Xscale * X
-     X2 <- diag(1 - Mscale * runif(m)) %*% X
-     
-     
+          wd <- rnorm(nspp, sd=sd.range)
+          wd <- wd + (abs(min(wd)))
+          wd <- wd / max(wd)
 
-     ##################################        
-     #REPULSION
+          dif <- sort(wd)[-1] - sort(wd)[-length(wd)]
+          rat <- mean(dif / sort(wd)[-1])
+          wd[wd==0] <- sort(wd)[2] - sort(wd)[2] * rat                                  #Assign the zero with the mean ratio of nearest neighbor distances over the larger item
+          wd <- wd.all * wd
+
+      	 #X <- exp(-((spmx - mxsp)^2) / t(matrix(wd, nspp, m))) #Niche distributions
+      	X <- matrix(1, nrow=length(mx), ncol=nspp) #probability of being in each site
+        }      
+    
+    
+    X1 <- Xscale * X                                                                       #Scales this initial species x site probability matrix 
+    #X1 <- diag(1 - Mscale * runif(m)) %*% X                                               #Scale and include random variation into the niche distributions
+
+     
+##################################   
+#Is there interspecific interactions - competition or facilitation     
+ #REPULSION
      X.repulse <- NULL
       if (repulse) {
         compscale <- repulse.scale
@@ -194,14 +157,15 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
         iDcomp <- t(chol(Vcomp))
         colnames(Vcomp) <- rownames(Vcomp)
         bcomp <- NULL
+        
         for (i in 1:m) {
           bcomp <- cbind(bcomp, iDcomp %*% rnorm(nspp))
         }
+        
         bcomp0 <- 0
         Xcomp <- exp(bcomp0 + bcomp)/(1 + exp(bcomp0 + bcomp))
         #X <- X * t(Xcomp)
         X1 <- X1 * t(Xcomp)
-        X2 <- X2 * t(Xcomp)
         X.repulse <- t(Xcomp)
       }
       
@@ -209,16 +173,23 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
   X. <- NULL
   spp.Xs <- array(NA, dim=c(m, m, nspp))
   for(i in 1:nspp){
-    sppX < -matrix((X1[, i]) %*% t(X2[, i]))
+    sppX <- matrix((X1[,i]) %*% t(X1[,i]))
     spp.Xs[, , i] <- sppX
     X. <- cbind(X., matrix(sppX))
    }
-   colnames(X.) <- colnames(X2)
+   colnames(X.) <- colnames(X1)
+
+## SOLVE for probability cutoff that gives mean range = wd.all  
+f <- function(th){mean(apply(X., 2, function(x){length(x[x>th])})) - wd.all} 
+th <- uniroot(f, lower=0, upper=max(X.), tol=10^-200)$root   
+  
   ######################
   #PA matrix
+  #quant <- quantile(X., probs=th, na.rm=TRUE)
+  #quant <- ifelse((var(as.vector(X.))==0), 0, quant)
   m. <- dim(X.)[1]
   Y <- matrix(0, ncol = nspp, nrow = m.)
-  Y[10^-th < X.] <- 1
+  Y[th < X.] <- 1
   if(extinction==FALSE){
   for(i in  which(colSums(Y)==0)){
   	Y[sample((which(X.[, i]==max(X.[, i]))), 1), i] <- 1
@@ -232,7 +203,7 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
   
 ##WEIGHT by K for abundance matrix- new range of values for each site bounded by 0 (absent), each site sums to K
 	Yab <- X.
-	Yab[10^-th > X.] <- 0
+	Yab[th > X.] <- 0
   
 	Yab <- t(apply(Yab, 1, 
   		function(x){
@@ -241,7 +212,7 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
   				}else{
   				x
   				}})) #scale by carrying capacity K			
-	Yab[Yab>0] <- floor(sapply(Yab[Yab>0], function(x){runif(1, min=(x-1), max=(x+5))}))
+	Yab[Yab>0] <- floor(sapply(Yab[Yab>0], function(x){runif(1, min=(x-1), max=(x+5))})) #add some random variation
 	for(i in which(colSums(Yab)==0)){
   		Yab[(which(Y[,i]==1)), i] <- 1
   		}
@@ -251,8 +222,10 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
 ##CREATE full environmental matrix (add mx1+mx2)
 	env <- matrix((mx), nrow=length(mx), ncol=length(mx), byrow=FALSE)
 
- 
- 
+if(neutral==TRUE){
+	bspp1 <- matrix(1, ncol=1, nrow=nrow(bspp1))
+}
+
 ########### OUTPUT  
     	return(list(Y = Y, 
     			    Yab = Yab,
@@ -260,7 +233,6 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
     				gradient1 = mx,
                 	X.joint = X.,
                 	X1 = X1, 
-                	X2 = X2, 
                 	nichewd = wd.all, 
                 	K = K, 
 					environ = env,
@@ -268,7 +240,7 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
                 	V.phylo = Vinit, 
                 	V.phylo.rho = V, 
                 	V.center = V.a, 
-                	bsp1 = bspp1 
+                	bsp1 = bspp1
                 	))
   
 }  #function end
@@ -336,13 +308,13 @@ m <- length(mx) #new number of sites (equal to nsites + 1)
 
 ##Plotting distributions and landscape patterns
 plotscape <- function(scape1){
-			abundmax<-scape1$K
-			PA_mat<-as.matrix(scape1$Y)
-			abund_mat<-scape1$Yab
-			site.size=nrow(PA_mat)
-			species<-ncol(PA_mat)
-			mx<-scape1$gradient
-			env<-scape1$environ
+			abundmax <- scape1$K
+			PA_mat <- as.matrix(scape1$Y)
+			abund_mat <- scape1$Yab
+			site.size = nrow(PA_mat)
+			species <- ncol(PA_mat)
+			mx <- scape1$gradient
+			env <- scape1$environ
 
 
 par(mfrow=c(2,2), oma=c(0,0,2,0))
